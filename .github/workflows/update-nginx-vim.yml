@@ -1,0 +1,86 @@
+name: Update nginx.vim from nginx master contrib/vim
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+
+jobs:
+  update-nginx-vim:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Clone nginx repository
+        run: |
+          git clone --branch master https://github.com/nginx/nginx.git nginx
+
+      - name: Get latest commit SHA and message for contrib/vim
+        id: get-commit
+        run: |
+          cd nginx
+          COMMIT_SHA=$(git log -1 --pretty=%h contrib/vim)
+          COMMIT_MESSAGE=$(git log -1 --pretty=%s contrib/vim | tr -d '\n' | sed 's/[^a-zA-Z0-9:,. -]//g' | head -c 100)
+          if [ -z "$COMMIT_SHA" ] || [ -z "$COMMIT_MESSAGE" ]; then
+            echo "Failed to fetch commit SHA or message for contrib/vim"
+            exit 1
+          fi
+          echo "Latest commit SHA for contrib/vim: $COMMIT_SHA"
+          echo "Latest commit message for contrib/vim: $COMMIT_MESSAGE"
+          echo "commit_sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
+          echo "commit_message=$COMMIT_MESSAGE" >> $GITHUB_OUTPUT
+          cd ..
+
+      - name: Check if commit is already processed
+        id: check-commit
+        run: |
+          COMMIT_SHA=${{ steps.get-commit.outputs.commit_sha }}
+          if git log --oneline | grep -q "Update nginx.vim to $COMMIT_SHA"; then
+            echo "Commit $COMMIT_SHA already processed, exiting."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Copy nginx.vim files to root
+        if: steps.check-commit.outputs.skip == 'false'
+        run: |
+          rm -rf syntax indent ftdetect filetype.vim
+          cp -r nginx/contrib/vim/* .
+          rm -rf nginx
+
+      - name: Check for changes
+        id: check-changes
+        if: steps.check-commit.outputs.skip == 'false'
+        run: |
+          if git diff --quiet; then
+            echo "No changes detected."
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changes detected."
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure Git
+        if: steps.check-commit.outputs.skip == 'false' && steps.check-changes.outputs.has_changes == 'true'
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+
+      - name: Commit and push changes
+        if: steps.check-commit.outputs.skip == 'false' && steps.check-changes.outputs.has_changes == 'true'
+        run: |
+          COMMIT_SHA=${{ steps.get-commit.outputs.commit_sha }}
+          COMMIT_MESSAGE="${{ steps.get-commit.outputs.commit_message }}"
+          DEFAULT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          echo "Pushing to branch: $DEFAULT_BRANCH"
+          git add .
+          git commit -m "Update to $COMMIT_SHA
+
+            $COMMIT_MESSAGE
+            Detail in https://github.com/nginx/nginx/commit/$COMMIT_SHA"
+          git push origin $DEFAULT_BRANCH
