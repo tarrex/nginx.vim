@@ -49,8 +49,7 @@ jobs:
       - name: Copy nginx.vim files to root
         if: steps.check-commit.outputs.skip == 'false'
         run: |
-          # rm -rf syntax indent ftdetect filetype.vim
-          find . -maxdepth 1 ! -name ".git" ! -name ".github" ! -name "README.md" ! -name "." -exec rm -rf {} \;
+          find . -maxdepth 1 ! -name "nginx" ! -name ".git" ! -name ".github" ! -name "README.md" ! -name "." -exec rm -rf {} \;
           cp -r nginx/contrib/vim/* .
           rm -rf nginx
 
